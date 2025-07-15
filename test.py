@@ -144,8 +144,8 @@ def run_cellpose_tests():
             sys.executable, "-m", "pytest", 
             str(tests_dir),
             "-v",  # verbose output
-            "--tb=short",  # shorter traceback format
-            "--disable-warnings",  # disable warnings for cleaner output
+            # "--tb=short",  # shorter traceback format
+            # "--disable-warnings",  # disable warnings for cleaner output
         ]
         
         print(f"Running tests in {tests_dir}...")

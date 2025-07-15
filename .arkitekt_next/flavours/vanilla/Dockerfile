@@ -1,6 +1,7 @@
 FROM nvidia/cuda:12.9.1-devel-ubuntu24.04
 
 RUN apt update && apt install -y python3-pip
+RUN update-alternatives --install /usr/bin/python python /usr/bin/python3 1
 RUN pip install --break-system-packages "arkitekt-next[all]>=0.17.0"
 
 RUN mkdir /app
