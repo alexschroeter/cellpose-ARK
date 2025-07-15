@@ -1,0 +1,6 @@
+author: Alexander Wilhelmi
+entrypoint: app
+identifier: cellpose-ARK
+scopes:
+- read
+version: 0.0.1

@@ -1,0 +1,6 @@
+__pycache__/
+arkitekt-env/
+
+*.swp
+*.swo
+*.swn

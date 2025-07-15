@@ -1,0 +1,12 @@
+{
+    "name": "cellpose-ARK vanilla Devcontainer",
+    "build": {
+        "dockerfile": "../../.arkitekt_next/flavours/vanilla/Dockerfile",
+        "context": "../.."
+    },
+    "runArgs": [
+        "--network=host",
+        // OPTIONAL: only when using GPUs
+        "--gpus=all"
+    ]
+}
