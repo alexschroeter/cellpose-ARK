@@ -1,80 +1,113 @@
 from arkitekt_next import register
+from mikro_next import Image
 
 from cellpose import denoise, io
 
+class ModelType(str, Enum):
+    cyto3 = "cyto3"
+    cyto2 = "cyto2"
+    cyto = "cyto"
+    nuclei = "nuclei"
+    tissuenet = "tissuenet_cp3"
+    livecell = "livecell_cp3"
+    yeast_phc = "yeast_phc_cp3"
+    yeast_bf = "yeast_bf_cp3"
+    bact_phase = "bact_phase_cp3"
+    bact_fluor = "bact_flour_cp3"
+    deepbacs = "deepbacs_cp3"
+    cyto2_cp3 = "cyto2_cp3"
+    custom = "custom"
 
-@register(collections=["segmentation","prediction",])
-def run_segmentation():
-    # ToDo: Segmentation is basically the same but you don't really want to run it twice
-    #       So it would be nice if you could choose what of the results you want.
-    #       i.e denoising or segmentation or both ... Not sure what the best solution is here.
-    pass
+class RestoreType(str, Enum):
+    denoise_cyto3 = "denoise_cyto3"
+    deblur_cyto3 = "deblur_cyto3"
+    upsample_cyto3 = "upsample_cyto3"
+    denoise_nuclei = "denoise_nuclei"
+    deblur_nuclei = "deblur_nuclei"
+    upsample_nuclei = "upsample_nuclei"
 
 @register(collections=["denoising","prediction",])
-def run_denoising(imgs=None):
-
-    # ToDo: Load the data
-    # dat = np.load(filename, allow_pickle=True)["arr_0"].item()
-    
-    if imgs is None:
-        print("Error: No images provided for denoising")
-        return None
+def run_cellpose_denoise_model(
+    image=Image,
+    gpu: bool = True,
+    pretrained_model: False,
+    mkldnn: True,
+    diam_mean: 30,
+    device: None,
+    nchan=2, 
+    pretrained_model_ortho=None, 
+    backbone='default',
+    ###
+    model_type=ModelType.cyto3,
+    restore_type=RestoreType.denoise_cyto3,
+    custom_model=None,
+    channels,
+    channel_axis=0,
+    diameter=30, # diameter of objects in pixels
+    resample=False,
+    cellprob_threshold=0.0,
+    flow_threshold=0.4,
+    do_3D=False,
+    stitch_threshold=0.0,
+    cytoplasm_channel=0,
+    nuclei_channel=None,
+    nuclei_retore=False,
+    ) -> Image:
 
     io.logger_setup() # run this to get printing of progress
 
-    # DEFINE CELLPOSE MODEL
-    # model_type="cyto3" or "nuclei", or other model
-    # restore_type: "denoise_cyto3", "deblur_cyto3", "upsample_cyto3", "denoise_nuclei", "deblur_nuclei", "upsample_nuclei"
+    if model == ModelType.custom:
+        # ToDo: pass the model from Arkitekt
+        raise NotImplementedError("Custom models are not yet supported in this function.")
+
     model = denoise.CellposeDenoiseModel(
         gpu=True, 
-        model_type="cyto3",
-        restore_type="denoise_cyto3",
-        )
+        model_type=model
+        restore_type=restore_type,
+        chan2_restore=nuclei_retore,
+    )
 
-    # define CHANNELS to run segementation on
-    # grayscale=0, R=1, G=2, B=3
-    # channels = [cytoplasm, nucleus]
-    # if NUCLEUS channel does not exist, set the second channel to 0
-    # channels = [0,0]
-    # IF ALL YOUR IMAGES ARE THE SAME TYPE, you can give a list with 2 elements
-    # channels = [0,0] # IF YOU HAVE GRAYSCALE
-    # channels = [2,3] # IF YOU HAVE G=cytoplasm and B=nucleus
-    # channels = [2,1] # IF YOU HAVE G=cytoplasm and R=nucleus
-    # OR if you have different types of channels in each image
-    # channels = [[2,3], [0,0], [0,0]]
+    if nuclei_channel is None:
+        nuclei_channel = 0
+    channels = [channel_to_segment, nuclei_channel]
 
-    # if you have a nuclear channel, you can use the nuclei restore model on the nuclear channel with
-    # model = denoise.CellposeDenoiseModel(..., chan2_restore=True)
 
-    # NEED TO SPECIFY DIAMETER OF OBJECTS
-    # in this case we have them from the ground-truth masks
-    diams = dat["diam_test"]
+    img = image.data.sel(c=0, t=0, z=0).data.compute()
 
-    masks, flows, styles, imgs_dn = model.eval(imgs, diameter=diams, channels=[0,0])
+    masks, flows, styles, imgs_dn = model.eval(
+        img,
+        diameter=diameter,
+        channels=channels,
+    )
 
-    ### Return the denoised images
+    intermediate_result = xr.DataArray(
+        results=[imgs_dn, masks, flows, styles],
+        dims=["c", "t", "y", "x"],
+    )
 
-    # plt.figure(figsize=(8,12))
-    # for i, iex in enumerate([2, 18, 20]):
-    #     img = imgs[iex].squeeze()
-    #     plt.subplot(3,3,1+i)
-    #     plt.imshow(img, cmap="gray", vmin=0, vmax=1)
-    #     plt.axis('off')
-    #     plt.title("noisy")
+    result = from_xarray(
+        intermediate_result,
+        name="Segmented and Denoised " + image.name,
+        origins=[image],
+        tags=["denoised", "cellpose", "prediction", "segmented"],
+        variety=Image.MASK,
+    )
 
-    #     img_dn = imgs_dn[iex].squeeze()
-    #     plt.subplot(3,3,4+i)
-    #     plt.imshow(img_dn, cmap="gray", vmin=0, vmax=1)
-    #     plt.axis('off')
-    #     plt.title("denoised")
+    return result
 
-    #     plt.subplot(3,3,7+i)
-    #     plt.imshow(img_dn, cmap="gray", vmin=0, vmax=1)
-    #     outlines = utils.outlines_list(masks[iex])
-    #     for o in outlines:
-    #         plt.plot(o[:,0], o[:,1], color=[1,1,0])
-    #     plt.axis('off')
-    #     plt.title("segmentation")
+@register(collections=["segmentation","prediction",])
+def predict_segmentation(
+    image=Image,
+) -> Image:
+    pass
 
-    # plt.tight_layout()
-    # plt.show()
+@register(collections=["denoise","prediction",])
+def predict_denoising(
+    image=Image,
+) -> Image:
+    pass
+
+@register(collections=["segmentation","training",])
+def train_cellpose_model(
+
+):
