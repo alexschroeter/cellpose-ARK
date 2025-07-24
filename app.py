@@ -1,113 +1,108 @@
 from arkitekt_next import register
 from mikro_next import Image
 
-from cellpose import denoise, io
+from cellpose import models, io, train, metrics
 
-class ModelType(str, Enum):
-    cyto3 = "cyto3"
-    cyto2 = "cyto2"
-    cyto = "cyto"
-    nuclei = "nuclei"
-    tissuenet = "tissuenet_cp3"
-    livecell = "livecell_cp3"
-    yeast_phc = "yeast_phc_cp3"
-    yeast_bf = "yeast_bf_cp3"
-    bact_phase = "bact_phase_cp3"
-    bact_fluor = "bact_flour_cp3"
-    deepbacs = "deepbacs_cp3"
-    cyto2_cp3 = "cyto2_cp3"
-    custom = "custom"
-
-class RestoreType(str, Enum):
-    denoise_cyto3 = "denoise_cyto3"
-    deblur_cyto3 = "deblur_cyto3"
-    upsample_cyto3 = "upsample_cyto3"
-    denoise_nuclei = "denoise_nuclei"
-    deblur_nuclei = "deblur_nuclei"
-    upsample_nuclei = "upsample_nuclei"
-
-@register(collections=["denoising","prediction",])
-def run_cellpose_denoise_model(
+@register(collections=["segmentation","prediction",])
+def run_cellpose_SAM(
     image=Image,
+    pretrained_model: Model = None,
     gpu: bool = True,
-    pretrained_model: False,
-    mkldnn: True,
-    diam_mean: 30,
-    device: None,
-    nchan=2, 
-    pretrained_model_ortho=None, 
-    backbone='default',
-    ###
-    model_type=ModelType.cyto3,
-    restore_type=RestoreType.denoise_cyto3,
-    custom_model=None,
-    channels,
-    channel_axis=0,
-    diameter=30, # diameter of objects in pixels
-    resample=False,
-    cellprob_threshold=0.0,
-    flow_threshold=0.4,
-    do_3D=False,
-    stitch_threshold=0.0,
-    cytoplasm_channel=0,
-    nuclei_channel=None,
-    nuclei_retore=False,
+    flow_threshold: float = 0.4,
+    cellprob_threshold: float = 0.0,
+    tile_norm_blocksize: int = 0,
     ) -> Image:
 
     io.logger_setup() # run this to get printing of progress
 
-    if model == ModelType.custom:
-        # ToDo: pass the model from Arkitekt
-        raise NotImplementedError("Custom models are not yet supported in this function.")
-
-    model = denoise.CellposeDenoiseModel(
-        gpu=True, 
-        model_type=model
-        restore_type=restore_type,
-        chan2_restore=nuclei_retore,
+    model = models.CellposeModel(
+        gpu=True,
+        pretrained_model=pretrained_model.path if pretrained_model else None,
     )
 
-    if nuclei_channel is None:
-        nuclei_channel = 0
-    channels = [channel_to_segment, nuclei_channel]
-
-
-    img = image.data.sel(c=0, t=0, z=0).data.compute()
-
-    masks, flows, styles, imgs_dn = model.eval(
-        img,
-        diameter=diameter,
-        channels=channels,
+    # @jhnnsrs how do I pass the channels and dimensions I want to use?
+    image.data.sel(c="0", t="0").data.compute()
+    
+    masks, flows, styles = model.eval(
+        img_selected_channels, 
+        batch_size=32, 
+        flow_threshold=flow_threshold, 
+        cellprob_threshold=cellprob_threshold,
+        normalize={"tile_norm_blocksize": tile_norm_blocksize},
     )
 
-    intermediate_result = xr.DataArray(
-        results=[imgs_dn, masks, flows, styles],
-        dims=["c", "t", "y", "x"],
+    # @jhnnsrs Do we want to also upload the flows and styles?
+    array = xr.DataArray(
+        results=masks,
+        dims=["x", "y"],
     )
 
     result = from_xarray(
-        intermediate_result,
+        array,
         name="Segmented and Denoised " + image.name,
         origins=[image],
-        tags=["denoised", "cellpose", "prediction", "segmented"],
+        tags=["cellpose", "prediction", "segmented"],
         variety=Image.MASK,
     )
 
     return result
 
-@register(collections=["segmentation","prediction",])
-def predict_segmentation(
-    image=Image,
-) -> Image:
-    pass
-
-@register(collections=["denoise","prediction",])
-def predict_denoising(
-    image=Image,
-) -> Image:
-    pass
-
 @register(collections=["segmentation","training",])
-def train_cellpose_model(
+def train_cellpose_SAM(
+    model_name: str = "custom_cellpose_model",
+    image=Image,
+    n_epochs = 100,
+    learning_rate = 1e-5,
+    weight_decay = 0.1,
+    batch_size = 1,
+    test: bool = False,
+    ) -> Model:
 
-):
+    # Loading the default model which training is added to
+    model = models.CellposeModel(gpu=True)
+
+    # @jhnnsrs How do I load a list of images? And how do I select the label masks for training?
+    output = io.load_train_test_data(
+        train_dir,
+        test_dir,
+        mask_filter="_seg.npy",
+    )
+    # ToDo: Read in the data not from file but from mikro directly
+    #       We need our own load_train_test_data function that does this
+
+    # (not passing test data into function to speed up training) 
+    # AW: I think this is mostly filenames that get dropped which probably blocks 
+    # the train_seg function from loading the data from file again
+    train_data, train_labels, _, test_data, test_labels, _ = output
+
+    new_model_path, train_losses, test_losses = train.train_seg(
+        model.net,
+        train_data=train_data,
+        train_labels=train_labels,
+        batch_size=batch_size,
+        n_epochs=n_epochs,
+        learning_rate=learning_rate,
+        weight_decay=weight_decay,
+        nimg_per_epoch=max(2, len(train_data)), # can change this
+        model_name=model_name,    
+    )
+
+    ### test the model on the test data
+
+    # run model on test images
+    masks = model.eval(test_data, batch_size=32)[0]
+
+    # check performance using ground truth labels
+    ap = metrics.average_precision(test_labels, masks)[0]
+    print('')
+    print(f'>>> average precision at iou threshold 0.5 = {ap[:,0].mean():.3f}')
+
+    # save and upload the model
+    archive = shutil.make_archive("active_model", "zip", f"{new_model_path}")
+    my_model = create_model(
+        "active_model.zip",
+        kind=ModelKind.PYTORCH,
+        name=f"Cellpose Pretrained Model: {pretrained}",
+        contexts=[],
+    )
+    return my_model

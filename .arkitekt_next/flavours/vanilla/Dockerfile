@@ -11,4 +11,4 @@ COPY app.py /app/app.py
 
 COPY cellpose /app/cellpose
 
-RUN pip install --break-system-packages cellpose==3.1.1.2 matplotlib torch torchvision segment_anything
+RUN pip install --break-system-packages cellpose matplotlib torch torchvision segment_anything
