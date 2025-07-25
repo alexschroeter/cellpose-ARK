@@ -1,12 +1,126 @@
 from arkitekt_next import register
-from mikro_next import Image
+from mikro_next.api.schema import Image, File, from_array_like, create_dataset
+import xarray as xr
+import os
+# from typing import Tuple
 
-from cellpose import models, io, train, metrics
+from cellpose import models, io, train, metrics, utils
+import zipfile
+
+@register
+def import_cellpose_dataset_human_in_the_loop() -> tuple[list[Image], list[Image], list[Image], list[Image]]:
+    """
+    Import the Cellpose Human in the Loop dataset into Arkitekt.
+    This function downloads the dataset from a given URL, extracts it,
+    and loads the training and test data along with their corresponding labels.
+    """
+    url = "https://drive.google.com/uc?id=1HXpLczf7TPCdI1yZY5KV3EkdWzRrgvhQ"
+    utils.download_url_to_file(url, "human_in_the_loop.zip")
+
+    with zipfile.ZipFile("human_in_the_loop.zip", 'r') as zip_ref:
+        zip_ref.extractall(".")
+
+    train_data, train_labels, train_filename, test_data, test_labels, test_filename = io.load_train_test_data(
+        "human_in_the_loop/train/",
+        "human_in_the_loop/test/",
+        mask_filter="_seg.npy",
+    )
+
+    cellpose_dataset = create_dataset("Cellpose - Human in the Loop",)
+    train_dataset = create_dataset("Training Data", parent=cellpose_dataset)
+    test_dataset = create_dataset("Test Data", parent=cellpose_dataset)
+
+    a, b, c, d = [], [], [], []
+    for i in range(len(train_data)):
+        a.append(from_array_like(
+            xr.DataArray(train_data[i], dims=("c", "y", "x")),
+            name=f"{os.path.basename(train_filename[i])}",
+            tags=["cellpose", "human_in_the_loop", "training"],
+            dataset=train_dataset,
+        ))
+        b.append(from_array_like(
+            xr.DataArray(train_labels[i], dims=("y", "x")),
+            name=f"Labelmask of {os.path.basename(train_filename[i])}",
+            tags=["cellpose", "human_in_the_loop", "training", "labels"],
+            dataset=train_dataset,
+        ))
+    for i in range(len(test_data)):
+        c.append(from_array_like(
+            xr.DataArray(test_data[i], dims=("c", "y", "x")),
+            name=f"{os.path.basename(test_filename[i])}",
+            tags=["cellpose", "human_in_the_loop", "testing"],
+            dataset=test_dataset,
+        ))
+        d.append(from_array_like(
+            xr.DataArray(test_labels[i], dims=("y", "x")),
+            name=f"Labelmask of {os.path.basename(test_filename[i])}",
+            tags=["cellpose", "human_in_the_loop", "testing", "labels"],
+            dataset=test_dataset,
+        ))
+    return a, b, c, d
+
+@register
+def import_cellpose_dataset(
+        train_archive: File,
+        test_archive: File,
+) -> tuple[list[Image], list[Image], list[Image], list[Image]]:
+    """
+    Download the Dataset from https://www.cellpose.org/dataset
+    and add it to Arkitekt, from here this function will import
+    the training and test data as well as the labels.
+    """
+    train_archive.download("train.zip")
+    test_archive.download("test.zip")
+
+    with zipfile.ZipFile("train.zip", 'r') as zip_ref:
+        zip_ref.extractall("cellpose_SAM_dataset/")
+    with zipfile.ZipFile("test.zip", 'r') as zip_ref:
+        zip_ref.extractall("cellpose_SAM_dataset/")
+
+    train_data, train_labels, train_filename, test_data, test_labels, test_filename = io.load_train_test_data(
+        "cellpose_SAM_dataset/train",
+        "cellpose_SAM_dataset/test",
+        image_filter="_img",
+        mask_filter="_masks",
+    )
+
+    cellpose_dataset = create_dataset("Cellpose - SAM",)
+    train_dataset = create_dataset("Training Data", parent=cellpose_dataset)
+    test_dataset = create_dataset("Test Data", parent=cellpose_dataset)
+
+    a, b, c, d = [], [], [], []
+    for i in range(len(train_data)):
+        a.append(from_array_like(
+            xr.DataArray(train_data[i], dims=("x", "y", "c")),
+            name=f"{os.path.basename(train_filename[i])}",
+            tags=["cellpose", "SAM", "training"],
+            dataset=train_dataset,
+        ))
+        b.append(from_array_like(
+            xr.DataArray(train_labels[i], dims=("x", "y")),
+            name=f"Labelmask of {os.path.basename(train_filename[i])}",
+            tags=["cellpose", "SAM", "training", "labels"],
+            dataset=train_dataset,
+        ))
+    for i in range(len(test_data)):
+        c.append(from_array_like(
+            xr.DataArray(test_data[i], dims=("x", "y", "c")),
+            name=f"{os.path.basename(test_filename[i])}",
+            tags=["cellpose", "SAM", "testing"],
+            dataset=test_dataset,
+        ))
+        d.append(from_array_like(
+            xr.DataArray(test_labels[i], dims=("x", "y")),
+            name=f"Labelmask of {os.path.basename(test_filename[i])}",
+            tags=["cellpose", "SAM", "testing", "labels"],
+            dataset=test_dataset,
+        ))
+    return a, b, c, d
 
 @register(collections=["segmentation","prediction",])
 def run_cellpose_SAM(
     image=Image,
-    pretrained_model: Model = None,
+    pretrained_model: models.CellposeModel = None,
     gpu: bool = True,
     flow_threshold: float = 0.4,
     cellprob_threshold: float = 0.0,
@@ -56,7 +170,7 @@ def train_cellpose_SAM(
     weight_decay = 0.1,
     batch_size = 1,
     test: bool = False,
-    ) -> Model:
+    ) -> models.CellposeModel:
 
     # Loading the default model which training is added to
     model = models.CellposeModel(gpu=True)
