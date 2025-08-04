@@ -4,3 +4,5 @@ arkitekt-env/
 *.swp
 *.swo
 *.swn
+
+datasets/
