@@ -59,6 +59,7 @@ def import_cellpose_dataset_human_in_the_loop() -> tuple[list[Image], list[Image
 
     a, b, c, d = [], [], [], []
     graph = create_graph("Cellpose", description="The default cellpose graph")
+    IS_MASK_FOR = None  # Will be created after we have the first image/mask pair
 
     for i in range(len(train_data)):
         a.append(from_array_like(
@@ -83,13 +84,15 @@ def import_cellpose_dataset_human_in_the_loop() -> tuple[list[Image], list[Image
                 ],
         ))
 
-        IS_MASK_FOR = create_structure_relation_category(
-            graph,
-            "is_mask_for",
-            source_definition=b[-1],
-            target_definition=a[-1],
-            description="This relation connects images with their corresponding masks.",
-        )
+        # Create the relation category only once, using the first pair as template
+        if IS_MASK_FOR is None:
+            IS_MASK_FOR = create_structure_relation_category(
+                graph,
+                "is_mask_for",
+                source_definition=b[-1],
+                target_definition=a[-1],
+                description="This relation connects images with their corresponding masks.",
+            )
 
         b[-1] | IS_MASK_FOR() | a[-1]
 
@@ -115,14 +118,6 @@ def import_cellpose_dataset_human_in_the_loop() -> tuple[list[Image], list[Image
                 ),
                 ],
         ))
-        
-        IS_MASK_FOR = create_structure_relation_category(
-            graph,
-            "is_mask_for",
-            source_definition=d[-1],
-            target_definition=c[-1],
-            description="This relation connects images with their corresponding masks.",
-        )
 
         d[-1] | IS_MASK_FOR() | c[-1]
 
@@ -160,6 +155,7 @@ def import_cellpose_dataset(
 
     a, b, c, d = [], [], [], []
     graph = create_graph("Cellpose", description="The default cellpose graph")
+    IS_MASK_FOR = None  # Will be created after we have the first image/mask pair
 
     for i in range(len(train_data)):
         a.append(from_array_like(
@@ -176,14 +172,16 @@ def import_cellpose_dataset(
             mask_views=[]
         ))
         
-        IS_MASK_FOR = create_structure_relation_category(
-            graph,
-            "is_mask_for",
-            source_definition=b[-1],
-            target_definition=a[-1],
-            description="This relation connects images with their corresponding masks.",
-        )
-
+        # Create the relation category only once, using the first pair as template
+        if IS_MASK_FOR is None:
+            IS_MASK_FOR = create_structure_relation_category(
+                graph,
+                "is_mask_for",
+                source_definition=b[-1],
+                target_definition=a[-1],
+                description="This relation connects images with their corresponding masks.",
+            )
+        
         b[-1] | IS_MASK_FOR() | a[-1]
         
     for i in range(len(test_data)):
@@ -200,14 +198,6 @@ def import_cellpose_dataset(
             dataset=test_dataset,
         ))
         
-        IS_MASK_FOR = create_structure_relation_category(
-            graph,
-            "is_mask_for",
-            source_definition=b[-1],
-            target_definition=a[-1],
-            description="This relation connects images with their corresponding masks.",
-        )
-
         d[-1] | IS_MASK_FOR() | c[-1]
         
     return a, b, c, d
