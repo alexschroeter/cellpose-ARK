@@ -8,5 +8,16 @@
         "--network=host",
         // OPTIONAL: only when using GPUs
         "--gpus=all"
-    ]
+    ],
+    "customizations": {
+        "vscode": {
+            "settings": {},
+            "extensions": ["Flake8"]
+        }
+    },
+    "features": {
+        "ghcr.io/devcontainers/features/git:1": {
+          "version": "latest"
+        }
+    },
 }

@@ -4,7 +4,7 @@ import numpy as np
 import os
 from mikro_next.api.schema import (
     Image,
-    File, 
+    File,
     from_array_like, 
     create_dataset, 
     PartialInstanceMaskViewInput, 
@@ -12,6 +12,7 @@ from mikro_next.api.schema import (
 )
 from kraph.api.schema import (
     GraphQuery,
+    StructureRelationCategory,
     Model,
     Pairs,
     ViewKind,
@@ -25,8 +26,7 @@ from kraph.api.schema import (
 from typing import cast, Generator, Tuple
 from cellpose import models, io, train, metrics, utils
 import zipfile
-
-from asyncio import graph
+import shutil
 
 # @context
 # @dataclass
@@ -59,7 +59,7 @@ def import_cellpose_dataset_human_in_the_loop() -> tuple[list[Image], list[Image
 
     a, b, c, d = [], [], [], []
     graph = create_graph("Cellpose", description="The default cellpose graph")
-    IS_MASK_FOR = None  # Will be created after we have the first image/mask pair
+    IS_MASK_OF = None  # Will be created after we have the first image/mask pair
 
     for i in range(len(train_data)):
         a.append(from_array_like(
@@ -85,16 +85,16 @@ def import_cellpose_dataset_human_in_the_loop() -> tuple[list[Image], list[Image
         ))
 
         # Create the relation category only once, using the first pair as template
-        if IS_MASK_FOR is None:
-            IS_MASK_FOR = create_structure_relation_category(
+        if IS_MASK_OF is None:
+            IS_MASK_OF = create_structure_relation_category(
                 graph,
-                "is_mask_for",
-                source_definition=b[-1],
-                target_definition=a[-1],
+                "is_mask_of",
+                source_definition=a[-1],
+                target_definition=b[-1],
                 description="This relation connects images with their corresponding masks.",
             )
 
-        b[-1] | IS_MASK_FOR() | a[-1]
+        a[-1] | IS_MASK_OF() | b[-1]
 
     for i in range(len(test_data)):
         c.append(from_array_like(
@@ -119,7 +119,7 @@ def import_cellpose_dataset_human_in_the_loop() -> tuple[list[Image], list[Image
                 ],
         ))
 
-        d[-1] | IS_MASK_FOR() | c[-1]
+        c[-1] | IS_MASK_OF() | d[-1]
 
     return a, b, c, d
 
@@ -177,12 +177,12 @@ def import_cellpose_dataset(
             IS_MASK_FOR = create_structure_relation_category(
                 graph,
                 "is_mask_for",
-                source_definition=b[-1],
-                target_definition=a[-1],
+                source_definition=a[-1],
+                target_definition=b[-1],
                 description="This relation connects images with their corresponding masks.",
             )
         
-        b[-1] | IS_MASK_FOR() | a[-1]
+        a[-1] | IS_MASK_FOR() | b[-1]
         
     for i in range(len(test_data)):
         c.append(from_array_like(
@@ -198,7 +198,7 @@ def import_cellpose_dataset(
             dataset=test_dataset,
         ))
         
-        d[-1] | IS_MASK_FOR() | c[-1]
+        c[-1] | IS_MASK_FOR() | d[-1]
         
     return a, b, c, d
 
@@ -352,17 +352,15 @@ def run_cellpose_SAM(
     #         tags=["cellpose", "SAM", "prediction"],
     #         # dataset=image.dataset,
     #     )
-    
-    ### Create Graph Relation
-    
+
     return mask, flow_image, cellprob_image
 
 @register(collections=["segmentation","training",])
 def train_cellpose_SAM(
+    is_mask_for_relation: StructureRelationCategory,  # Add this parameter to receive the relation category
     model_name: str = "custom_cellpose_model",
-    graph_query: GraphQuery,
     train_test_split: float = 0.8,
-    n_epochs = 100,
+    n_epochs = 2,
     learning_rate = 1e-5,
     weight_decay = 0.1,
     batch_size = 1,
@@ -384,26 +382,26 @@ def train_cellpose_SAM(
         Model: _description_
     """
     ###
-    # ToDo: Ask @jhnnsrs if this is the correct way to create a graph query
+    # Use the relationship category to get the graph and create the query
     graph_query = create_graph_query(
-        "Cellpose",
-        "Pairs of image inside the dataset",
+        is_mask_for_relation.graph,
+        "Pairs of image with a is mask for relation",
         kind=ViewKind.PAIRS,
         query=f"""
         MATCH (n)-[r]->(m)
-        WHERE r.__category_id = {IS_MASK_FOR.id}
+        WHERE r.__category_id = {is_mask_for_relation.id}
         RETURN n, r, m
         """,
-        relevant_for=[IS_MASK_FOR],
+        relevant_for=[is_mask_for_relation],
     )
-    ###
     
     # Loading the default model which training is added to
     model = models.CellposeModel(gpu=True)
 
-    # Getting Training Data and Labels from Graph Query
+    ### Getting Training Data and Labels from Graph Query
     render = graph_query.render
     assert isinstance(render, Pairs), "Graph query render must be of type Pairs"
+    print(render)
     
     train_data, train_labels, test_data, test_labels = [], [], [], []
     split_index = int(train_test_split * len(render.pairs))
@@ -411,16 +409,19 @@ def train_cellpose_SAM(
     for pair in render.pairs[:split_index]:
         image_structure = pair.source
         mask_structure = pair.target
-        train_data.append(cast(Image, image_structure.resolve()))
-        train_labels.append(cast(Image, mask_structure.resolve()))
-        
+        train_data.append(cast(Image, image_structure.resolve()).data.squeeze('t').squeeze('z').data.compute())
+        train_labels.append(cast(Image, mask_structure.resolve()).data.squeeze('t').squeeze('z').data.compute())
+
+    print(f"Original Dimensions {train_data[0]}")
     for pair in render.pairs[split_index:]:
         image_structure = pair.source
         mask_structure = pair.target
-        test_data.append(cast(Image, image_structure.resolve()))
-        test_labels.append(cast(Image, mask_structure.resolve()))
+        test_data.append(cast(Image, image_structure.resolve()).data.squeeze('t').squeeze('z').data.compute())
+        test_labels.append(cast(Image, mask_structure.resolve()).data.squeeze('t').squeeze('z').data.compute())
 
-    # Train Custom Cellpose Model
+    print(f"Length Training Dataset: {len(train_data)} Test Dataset: {len(test_data)}")
+
+    ### Train Custom Cellpose Model
     new_model_path, train_losses, test_losses = train.train_seg(
         model.net,
         train_data=train_data,
@@ -433,22 +434,19 @@ def train_cellpose_SAM(
         model_name=model_name,    
     )
 
-    ### test the model on the test data
-
-    # run model on test images
+    ### Use the custom model to test against the test data
     masks = model.eval(test_data, batch_size=32)[0]
-
-    # check performance using ground truth labels
     ap = metrics.average_precision(test_labels, masks)[0]
-    print('')
-    print(f'>>> average precision at iou threshold 0.5 = {ap[:,0].mean():.3f}')
+    print(f'\n>>> average precision at iou threshold 0.5 = {ap[:,0].mean():.3f}\n')
 
-    # save and upload the model
-    archive = shutil.make_archive("active_model", "zip", f"{new_model_path}")
+    ### Save and upload the new custom model
+    model_dir = os.path.dirname(new_model_path)
+    model_filename = os.path.basename(new_model_path)
+    archive_path = shutil.make_archive(model_filename, "zip", model_dir)
+
     my_model = create_model(
-        "active_model.zip",
-        kind=ModelKind.PYTORCH,
-        name=f"Cellpose Pretrained Model: {pretrained}",
-        contexts=[],
+        model=archive_path,
+        name=f"Cellpose Custom Model: {model_name}",
+        view=graph_query,
     )
     return my_model
