@@ -5,4 +5,6 @@ arkitekt-env/
 *.swo
 *.swn
 
-datasets/
+archive/
+*.logs
+bench-ARK/

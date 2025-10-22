@@ -1,4 +1,4 @@
-FROM pytorch/pytorch:latest
+FROM rocm/pytorch:rocm6.4.2_ubuntu24.04_py3.12_pytorch_release_2.6.0
 
 RUN apt update && apt install -y python3-pip
 RUN update-alternatives --install /usr/bin/python python /usr/bin/python3 1
@@ -14,4 +14,4 @@ COPY cellpose /app/cellpose
 ENV SETUPTOOLS_SCM_PRETEND_VERSION_FOR_CELLPOSE=0.0.0.dev0
 RUN pip install --break-system-packages /app/cellpose/
 
-RUN pip install --break-system-packages matplotlib torch torchvision segment_anything kraph
+RUN pip install --break-system-packages matplotlib segment_anything kraph numba

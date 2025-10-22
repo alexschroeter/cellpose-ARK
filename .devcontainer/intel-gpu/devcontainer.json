@@ -1,13 +1,15 @@
 {
-    "name": "cellpose-ARK vanilla Devcontainer",
+    "name": "cellpose-ARK intel-gpu Devcontainer",
     "build": {
-        "dockerfile": "../../.arkitekt_next/flavours/vanilla/Dockerfile",
+        "dockerfile": "../../.arkitekt_next/flavours/intel-gpu/Dockerfile",
         "context": "../.."
     },
     "runArgs": [
         "--network=host",
-        // OPTIONAL: only when using GPUs
-        "--env=ARKITEKT_FLAVOUR=vanilla"
+        "--device=/dev/dri",
+        "--volume=/dev/dri/by-path:/dev/dri/by-path",
+        "--ipc=host",
+        "--env=ARKITEKT_FLAVOUR=intel_gpu",
     ],
     "customizations": {
         "vscode": {

@@ -1,13 +1,21 @@
 {
-    "name": "cellpose-ARK vanilla Devcontainer",
+    "name": "cellpose-ARK amd-gpu Devcontainer",
     "build": {
-        "dockerfile": "../../.arkitekt_next/flavours/vanilla/Dockerfile",
+        "dockerfile": "../../.arkitekt_next/flavours/amd-gpu/Dockerfile",
         "context": "../.."
     },
     "runArgs": [
         "--network=host",
         // OPTIONAL: only when using GPUs
-        "--env=ARKITEKT_FLAVOUR=vanilla"
+        "--cap-add=SYS_PTRACE",
+        "--security-opt=seccomp=unconfined",
+        "--device=/dev/kfd",
+        "--device=/dev/dri",
+        "--group-add=video",
+        "--ipc=host",
+        "--shm-size=8G",
+        "--env=ARKITEKT_FLAVOUR=amd_gpu",
+        "--env=HIP_VISIBLE_DEVICES=1"
     ],
     "customizations": {
         "vscode": {

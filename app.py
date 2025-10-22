@@ -24,7 +24,7 @@ from kraph.api.schema import (
     create_structure_relation_category,
 )
 from typing import cast, Generator, Tuple
-from cellpose import models, io, train, metrics, utils
+from cellpose import models, io, train, metrics, utils, core
 import zipfile
 import shutil
 
@@ -360,7 +360,7 @@ def train_cellpose_SAM(
     is_mask_for_relation: StructureRelationCategory,  # Add this parameter to receive the relation category
     model_name: str = "custom_cellpose_model",
     train_test_split: float = 0.8,
-    n_epochs = 2,
+    n_epochs = 100,
     learning_rate = 1e-5,
     weight_decay = 0.1,
     batch_size = 1,
@@ -381,6 +381,7 @@ def train_cellpose_SAM(
     Returns:
         Model: _description_
     """
+    print(f"GPU Available: {core.use_gpu()}")
     ###
     # Use the relationship category to get the graph and create the query
     graph_query = create_graph_query(
